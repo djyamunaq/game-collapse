@@ -6,32 +6,13 @@ const FontFaceObserver = require('fontfaceobserver');
 
 // Load arcade style font
 let font = new FontFaceObserver('Minecraft');
-// Font styles
-const buttonTextStyle = new PIXI.TextStyle({
-    fontFamily: 'Minecraft',
-    fontSize: 36,
-    fill: '#ffffff'
-});
-const gameOverTextStyle = new PIXI.TextStyle({
-    fontFamily: 'Minecraft',
-    fontSize: 72,
-    fill: '#ffffff'
-});
-const labelTextStyle = new PIXI.TextStyle({
-    fontFamily: 'Minecraft',
-    fontSize: 30,
-    fill: '#ffffff'
-});
-const valueTextStyle = new PIXI.TextStyle({
-    fontFamily: 'Minecraft',
-    fontSize: 24,
-    fill: '#ffffff'
-});
-const playButtonTextStyle = new PIXI.TextStyle({
-    fontFamily: 'Minecraft',
-    fontSize: 84,
-    fill: '#ffffff'
-});
+
+// Font Style Variables
+let buttonTextStyle;
+let gameOverTextStyle;
+let labelTextStyle;
+let valueTextStyle;
+let playButtonTextStyle;
 
 // After font loaded, build menu
 font.load().then(setOpening);
@@ -151,6 +132,8 @@ let playButtonText;
 let openingBomb;
 
 function setOpening() {
+    setupFontStyle();
+
     // Load bomb sprite
     openingBomb = PIXI.Sprite.from('./assets/image/bomb.png');
     
@@ -737,3 +720,31 @@ function pause() {
 function zeros(m, n) {
     return [...Array(m)].map(e => Array(n).fill(0));
 } 
+
+function setupFontStyle() {
+    buttonTextStyle = new PIXI.TextStyle({
+        fontFamily: 'Minecraft',
+        fontSize: 36,
+        fill: '#ffffff'
+    });
+    gameOverTextStyle = new PIXI.TextStyle({
+        fontFamily: 'Minecraft',
+        fontSize: 72,
+        fill: '#ffffff'
+    });
+    labelTextStyle = new PIXI.TextStyle({
+        fontFamily: 'Minecraft',
+        fontSize: 30,
+        fill: '#ffffff'
+    });
+    valueTextStyle = new PIXI.TextStyle({
+        fontFamily: 'Minecraft',
+        fontSize: 24,
+        fill: '#ffffff'
+    });
+    playButtonTextStyle = new PIXI.TextStyle({
+        fontFamily: 'Minecraft',
+        fontSize: 84,
+        fill: '#ffffff'
+    });
+}
