@@ -1,33 +1,23 @@
 import * as PIXI from 'pixi.js';
 import { sound } from '@pixi/sound';
-import { FORMATS_TO_COMPONENTS, resources } from 'pixi.js';
 
 const FontFaceObserver = require('fontfaceobserver');
 
-// Load arcade style font
-let font = new FontFaceObserver('Minecraft');
-
-// Font Style Variables
-let buttonTextStyle;
-let gameOverTextStyle;
-let labelTextStyle;
-let valueTextStyle;
-let playButtonTextStyle;
-
-// After font loaded, build menu
-font.load().then(setOpening);
-
 window.onload = function() {
-    // add app view to page document
+    // Create a reference to use fonts used in game
+    createFontReferences();
+    // Add all container components of game to the main stage
+    addContainersToStage();
+    // Setup audio files for game
+    setupAudio();
+    // Initialize global parameters
+    initializeParameters();
+    // Add app view to page document
     document.body.appendChild(app.view);
-
-    // Set audio
-    sound.add('background-music', './assets/audio/Loyalty-Freak-Music-Hyper-Jingle-Bells.mp3');
-    sound.add('beep', './assets/audio/mixkit-retro-game-notification-212.wav');
-    sound.add('game-over', './assets/audio/mixkit-arcade-retro-game-over-213.wav');
-    sound.add('explosion', './assets/audio/mixkit-8-bit-bomb-explosion-2811.wav');
-
-    loadSprites();
+    // Wait for loading fonts ant then start game
+    font.load().then(setOpening);
+    // Load sprites related to the tile objects
+    loadTileSprites();
 }
 
 // Play scene parameters
@@ -38,7 +28,7 @@ const N_LINES = 100;
 const l = 25;                                                   // Length of tile side/diameter of bomb
 const GAP = 10;                                                 // Gap between tiles
 const BOMB_RANGE = 3;                                           // Range of bomb in number of tiles
-const x0 = 10;                                                  // Initial x-axis position for tiles
+const x0 = 20;                                                  // Initial x-axis position for tiles
 const y0 = 650;                                                 // Initial y-axis position for tiles
 // Menu position parameters
 const VOLUME_ICON_SIZE = 40;
@@ -54,11 +44,12 @@ const LINES_LEFT_VALUE_POS_Y = 540;
 const MENU_ITEMS_POS_X = 90;
 const MENU_OFFSET = 20;                                         // Menu offset from play scene
 const MIN_GROUP = 3;                                            // Min size of group of tiles to score
-const MENU_x0 = x0 + WIDTH*(l + GAP) + MENU_OFFSET;             // Start x position for menu 
+const MENU_x0 = WIDTH*(l + GAP) + MENU_OFFSET;                  // Start x position for menu 
 // Time parameters
-const TIME_LAPSE = 1;                                           // Time between frames
+const TIME_LAPSE = 10;                                          // Time between frames
 const OPENING_TIME_LAPSE = 1;                                   // Time between frames in opening
 const TIME_LAPSE_PAUSE = 30;                                    // Time between frames in pause mode
+const TIME_LAPSE_GRAVITY = 1;                                   // Time between gravity activities
 // Main container parameters
 const STAGE_WIDTH = 800;                                        // Width of play scenario
 const STAGE_HEIGHT = 720;                                       // Height of play scenario
@@ -73,43 +64,52 @@ const ORANGE = 0Xff9d1c;
 const WHITE = 0xFFFFFF;                         
 const BLACK = 0x000000;                         
 
-// Set Application
+// Application reference
 const app = new PIXI.Application({ height: STAGE_HEIGHT, width: STAGE_WIDTH, antialias: true });
-// Images for volume sprites
 
-// 16x12 matrix of zeros
-let grid = zeros(HEIGHT+1, WIDTH);
-
-let sprites = {};
-
-// Create the application helper and add its render target to the page
-document.body.appendChild(app.view);
-
-// Graphics object for objects currently in board
-const graphics = new PIXI.Graphics();   
-
-// Container
+// Pixi Containers references
 const openingContainer = new PIXI.Container();
 const playSceneContainer = new PIXI.Container();
 const menuContainer = new PIXI.Container();
 const playButtonContainer = new PIXI.Container();
 
-menuContainer.x = MENU_x0;
+// Graphics reference
+const graphics = new PIXI.Graphics();   
 
-app.stage.addChild(openingContainer);
-app.stage.addChild(playSceneContainer);
-app.stage.addChild(menuContainer);
-app.stage.addChild(playButtonContainer);
+// Tile sprite auxiliar variables
+let grid;
+let sprites;
 
-let frameTimer = 0.0;          
-let counter = 1;                
-let index = N_LINES*WIDTH - 1;
-let level = 1;
-let score = 0;
-let linesLeft = 100;
-let paused = false;
-let gameOver = false;
-let onPlay = false;
+// Load arcade style font
+let font;
+
+// Font Style Variables
+let buttonTextStyle;
+let gameOverTextStyle;
+let labelTextStyle;
+let valueTextStyle;
+let playButtonTextStyle;
+
+// Timers
+let frameTimer;          
+let gravityTimer;
+
+// Count rendered sprites to create new line each 12 tiles
+let counter;            
+// Index for tile sprites pool                            
+let index;
+
+// Game variables
+let level;
+let score;
+let linesLeft;
+let paused;
+let gameOver;
+let onPlay;
+let spritesRebuilt;
+let victory;
+let gameOverText;
+let winText;
 
 // Menu items
 let scoreLabel;
@@ -121,94 +121,28 @@ let linesLeftValue;
 let volumeOn;
 let volumeOff;
 let pauseButton;
-let gameOverText;
 let restartButton;
 
-// Opening variables
-let inOpening = true;
-let xOpening = 0;
-let yOpening = STAGE_SIZE_Y - 1;
+// Opening scene variables
+let inOpening;
+// While opening wall, keep track of y position of line being rendered
+let yOpening;    
 let playButtonText;
 let openingBomb;
 
-function setOpening() {
-    setupFontStyle();
-
-    // Load bomb sprite
-    openingBomb = PIXI.Sprite.from('./assets/image/bomb.png');
-    
-    // Set size of bomb
-    openingBomb.width = 16*l;
-    openingBomb.height = 16*l;
-
-    // Centralize bomb in stage
-    openingBomb.x = STAGE_WIDTH/2 - openingBomb.width/2;
-    openingBomb.y = STAGE_HEIGHT/2 - openingBomb.height/2;
-
-    // openingBomb.visible = false;
-
-    playButtonText = new PIXI.Text('Play', playButtonTextStyle);
-
-    // Centralize play button text in bomb container
-    playButtonText.x = openingBomb.width/2 - playButtonText.width/5;
-    playButtonText.y = openingBomb.height/2 - playButtonText.height/16;
-    
-    playButtonText.buttonMode = true;
-    playButtonText.interactive = true;
-
-    // Hide bomb
-    openingBomb.visible = false;
-
-    // Add sprites to scene
-    app.stage.addChild(openingBomb);
-    openingBomb.addChild(playButtonText);
-    
-    playButtonText.on('mousedown', onClickPlayButton); // Change
-    
-    play();
-}
-
-function setRestart() {
-    onPlay = true;
-    gameOver = false;
-
-    linesLeft = 100;
-    linesLeftValue.text = linesLeft;
-    score = 0;
-    scoreValue.text = score;
-
-    gameOverText.visible = false;
-    restartButton.visible = false;
-    pauseButton.visible = true;
-
-    let oldChildren = playSceneContainer.removeChildren();
-
-    grid = zeros(HEIGHT+1, WIDTH);
-
-    sound.play('background-music');
-}
-
-function onClickPlayButton() {
-    openingBomb.visible = false;
-    inOpening = false;
-    setPlayScene();
-    buildMenu();
-    // Play background music
-    sound.play('background-music', {loop: true});
-}
-
+/* PLAY STATE IN LOOP */
 function play() {
-    let gravityTimer = 0;
 
+    // Main loop
     app.ticker.add((delta) => {
         frameTimer += delta;
     
+        // Opening state
         if(inOpening) {
             if(frameTimer > OPENING_TIME_LAPSE) {
                 frameTimer = 0;
                 sound.play('beep');
 
-    
                 if(yOpening < 0) {
                     sound.stop('beep');
 
@@ -219,32 +153,50 @@ function play() {
     
                 yOpening--;
             }
-        } else if(gameOver) {
-            // pauseButton.visible = false;
-            // restartButton.visible = true;
-        } else if(!paused) {
+        } 
+        // Game Over state
+        else if(gameOver) {
+            if(!spritesRebuilt) {
+                spritesRebuilt = true;
+                loadTileSprites();
+            }
+        } 
+        // Playing mode -> not paused
+        else if(!paused) {
             // Guarantee pause/resume oppacity is 100% if game not paused
             if(pauseButton != null) pauseButton.alpha = 1;   
             gravityTimer += delta;
     
+            // Update scenario
             if(frameTimer > TIME_LAPSE) {
                 frameTimer = 0;
     
+                // Count number of tiles added to line
                 if(counter == WIDTH+1) {
-                    counter = 1;
-                
+                    counter = 1;            
                     moveTilesUp();
-                } else if (index >= 0) {
+                } 
+                // If there are still tiles in pool, add to scene
+                else if (index >= 0) {
                     addTile(counter, index);
                     index--;
                     counter++;
+                } 
+                // If there's no lines left to add and game detect no more matches, victory defined and play mode stops
+                else if(linesLeft == 0 && isEndGame() && victory && onPlay) {
+                    onPlay = false;
+
+                    setWin();
                 }
             }
-            if(gravityTimer > 1) {
+            // Gravity and filling horizontal gaps
+            if(gravityTimer > TIME_LAPSE_GRAVITY) {
                 fillEmpty();
                 gravityTimer = 0;
             }
-        } else if(frameTimer > TIME_LAPSE_PAUSE) {
+        } 
+        // Paused
+        else if(frameTimer > TIME_LAPSE_PAUSE) {
             frameTimer = 0;
     
             // Change pause/resume oppacity btwn 0%/100%
@@ -254,25 +206,28 @@ function play() {
     
 }
 
-function setGameOver() {
-    onPlay = false;
-    restartButton.visible = true;
+/* SETUP PARAMETERS TO WIN STATE */
+function setWin() {
+    // Setup game over text
+    let winStr = 'Win!\n' + score.toString() + ' Points'
+    winText = new PIXI.Text(winStr, gameOverTextStyle);
+    winText.x = 7*(l+ GAP) - gameOverText.width/2;
+    winText.y = GAME_OVER_TEXT_POS_Y;
+    app.stage.addChild(winText);
+
     pauseButton.visible = false;
-    gameOver = true;
-    gameOverText.visible = true;
-    sound.stop('background-music');
-    sound.play('game-over');
+    restartButton.visible = true;
+    
+    // Remove all tiles from last round
+    playSceneContainer.removeChildren();
+    // Reload sprites
+    loadTileSprites();
 }
 
-function setPlayScene() {
+/* PREPARE PLAY STATE SCENARIO */
+function setPlayState() {
     onPlay = true;
-
-    gameOverText = new PIXI.Text('GAME\nOVER!', gameOverTextStyle);
-    gameOverText.x = 7*(l+ GAP) - gameOverText.width/2;
-    gameOverText.y = GAME_OVER_TEXT_POS_Y;
-    gameOverText.visible = false;
-
-    app.stage.addChild(gameOverText);
+    grid = zeros(HEIGHT+1, WIDTH);
 
     for(let i=2; i<20; i++) {
         for(let j=1; j<14; j++) {
@@ -345,6 +300,102 @@ function setPlayScene() {
     }
 }
 
+/* SET VARIABLES FOR OPENING ANIMATION AND PREPARE VARIABLES FOR PLAY MODE */
+function setOpening() {
+    // Setup font style for every text element in scene
+    setupFontStyle();
+
+    // Setup game over text
+    gameOverText = new PIXI.Text('GAME\nOVER!', gameOverTextStyle);
+    gameOverText.x = 7*(l+ GAP) - gameOverText.width/2;
+    gameOverText.y = GAME_OVER_TEXT_POS_Y;
+    gameOverText.visible = false;
+    app.stage.addChild(gameOverText);
+
+    // Load bomb sprite
+    openingBomb = PIXI.Sprite.from('./assets/image/bomb.png');
+    
+    // Set size of bomb
+    openingBomb.width = 16*l;
+    openingBomb.height = 16*l;
+
+    // Centralize bomb in stage
+    openingBomb.x = STAGE_WIDTH/2 - openingBomb.width/2;
+    openingBomb.y = STAGE_HEIGHT/2 - openingBomb.height/2;
+
+    // openingBomb.visible = false;
+
+    playButtonText = new PIXI.Text('Play', playButtonTextStyle);
+
+    // Centralize play button text in bomb container
+    playButtonText.x = openingBomb.width/2 - playButtonText.width/5;
+    playButtonText.y = openingBomb.height/2 - playButtonText.height/16;
+    
+    playButtonText.buttonMode = true;
+    playButtonText.interactive = true;
+
+    // Hide bomb
+    openingBomb.visible = false;
+
+    // Add sprites to scene
+    app.stage.addChild(openingBomb);
+    openingBomb.addChild(playButtonText);
+    
+    // Set action for "Play" text in mouse down action
+    playButtonText.on('mousedown', onClickPlayButton); // Change
+    
+    // Go into play mode
+    play();
+}
+
+/* RESET VARIABLES TO INITIAL STATE */
+function setRestart() {
+    onPlay = true;
+    gameOver = false;
+    victory = false;
+
+    linesLeft = N_LINES;
+    linesLeftValue.text = linesLeft;
+    score = 0;
+    scoreValue.text = score;
+    counter = 1;
+    index = N_LINES*WIDTH - 1;
+    gameOverText.visible = false;
+    restartButton.visible = false;
+    pauseButton.visible = true;
+
+    if(winText != null) winText.visible = false;
+
+    grid = zeros(HEIGHT+1, WIDTH);
+}
+
+/* SET VARIABLES TO GAME OVER STATE */
+function setGameOver() {
+    // Remove all tiles from last round
+    playSceneContainer.removeChildren();
+
+    // Set parameters to game over state
+    spritesRebuilt = false;
+    onPlay = false;
+    restartButton.visible = true;
+    pauseButton.visible = false;
+    gameOver = true;
+    gameOverText.visible = true;
+    sound.play('game-over');
+}
+
+/* ACTION WHEN CLICKING PLAY INTERACTIVE TEXT */
+function onClickPlayButton() {
+    openingBomb.visible = false;
+    inOpening = false;
+    setPlayState();
+    buildMenu();
+
+    // Play background music in loop
+    sound.play('background-music', {loop: true});
+}
+
+/* RENDERS OPENING WALL FOR INITIAL SCREEN */
 function buildOpeningWall(y) {
     for(let i=0; i<STAGE_SIZE_X; i++) {
         graphics.lineStyle(2, WHITE, 1);
@@ -364,18 +415,7 @@ function buildOpeningWall(y) {
     
 }
 
-function setVolume() {
-    if(volumeOn.visible) {
-        volumeOn.visible = false;
-        volumeOff.visible = true;
-        sound.muteAll()
-    } else {
-        volumeOn.visible = true;
-        volumeOff.visible = false;
-        sound.unmuteAll()
-    }
-}
-
+/* SIMULATES GRAVITY AND FILLS HORIZONTAL GAPS IN PLAY CONTAINER WITH TILES */
 function fillEmpty() {
     let filledY = true;
     playSceneContainer.children.forEach((child) => {
@@ -419,11 +459,16 @@ function fillEmpty() {
             }
         }
     }
+
+    // If all tiles have not fallen, no possible victory
+    victory = filledY;
 } 
 
+/* PLAY EXPLOSION AUDIO AND DESTROY TILES AND BOMBS IN REACH ZONE */
 function explodeBomb() {
     if(!onPlay) return;
 
+    // Sound and particle effects
     sound.play('explosion');
 
     const x = (this.x - x0)/(l+GAP) - 1;
@@ -452,6 +497,7 @@ function explodeBomb() {
                 let object = app.renderer.plugins.interaction.hitTest(globalPt, playSceneContainer);
 
                 if(object != null) {
+                    score++;
                     grid[i][j] = 0;
                     object.visible = false;
                     playSceneContainer.removeChild(object);
@@ -462,6 +508,7 @@ function explodeBomb() {
     playSceneContainer.removeChild(this);
 }
 
+/* DECREMENTS Y POSITION OF EVERY TILE AFTER LINE BUILT */
 function moveTilesUp() {
     playSceneContainer.children.forEach((child) => {
         child.alpha = 1;
@@ -493,6 +540,7 @@ function moveTilesUp() {
 
 }
 
+/* DESTROY TILES WHEN CLICKED IF IN GROUP OF 3 OR IF BOMB ACTIVATED AND TILE IN REACH ZONE */
 function removeTiles() {    
     if(!onPlay) return;
 
@@ -534,6 +582,7 @@ function removeTiles() {
     }
 }
 
+/* WHEN CLICKING IN TILE, COUNT NEIGHBORS WITH SAME COLOR */
 function countTiles(color, x, y, visited) {
     let n = 1;
     visited[y][x] = 1;
@@ -554,6 +603,7 @@ function countTiles(color, x, y, visited) {
     return n;
 }
 
+/* ADD A TILE TO PLAY SCENE FROM POOL OF SPRITES */
 function addTile(offset, index) {
     let sprite = (sprites[index])[0];
     let code = (sprites[index])[1];
@@ -571,9 +621,10 @@ function addTile(offset, index) {
     playSceneContainer.addChild(sprite);
 }
 
-function loadSprites() {
-    let lim = N_LINES*WIDTH;
+/* CREATE TILES AND ADD TO POOL OF SPRITES */
+function loadTileSprites() {
     sprites = {};
+    let lim = N_LINES*WIDTH;
 
     for(let i=0; i<lim; i++) {
         // Returns a random integer from 1 to 3 to define color of tile
@@ -630,11 +681,43 @@ function loadSprites() {
     
 }
 
+/* Checks if there's still possible matches */
+function isEndGame() {
+    for(let i=HEIGHT-1; i>=0; i--) {
+        for(let j=0; j<WIDTH; j++) {
+            let color = grid[i][j];
+
+            if(color == 0) continue;
+            
+            let visited = zeros(HEIGHT, WIDTH);
+
+            let n = countTiles(color, j, i, visited);
+
+            if(n >= 3) return false;
+        }
+    }
+    return true;
+}
+
+/* CHANGE STATE OF VOLUME (MUTE/UNMUTE) */
+function setVolume() {
+    if(volumeOn.visible) {
+        volumeOn.visible = false;
+        volumeOff.visible = true;
+        sound.muteAll()
+    } else {
+        volumeOn.visible = true;
+        volumeOff.visible = false;
+        sound.unmuteAll()
+    }
+}
+
+/* SETUP MENU ELEMENTS AND ADD TO MENU CONTAINER */
 function buildMenu() {
     pauseButton = new PIXI.Text('Pause', buttonTextStyle);
     pauseButton.buttonMode = true;
     pauseButton.interactive = true;
-    pauseButton.on('mousedown', pause);
+    pauseButton.on('mousedown', setPause);
 
     restartButton = new PIXI.Text('Restart', buttonTextStyle);
     restartButton.buttonMode = true;
@@ -705,7 +788,8 @@ function buildMenu() {
     menuContainer.addChild(volumeOff); 
 }
 
-function pause() {
+/* PAUSE IN PLAY MODE (ALL GAME MECHANICS STOP, MUSIC CONTINUES) */
+function setPause() {
     if(!paused) {
         onPlay = false;
         this.text = "Resume";
@@ -717,10 +801,12 @@ function pause() {
     }
 }
 
+/* CREATE MxN MATRIX FILLED WITH ZEROS */
 function zeros(m, n) {
     return [...Array(m)].map(e => Array(n).fill(0));
 } 
 
+/* SETUP FONT STYLES USED IN GAME ELEMENTS WITH TEXTS */
 function setupFontStyle() {
     buttonTextStyle = new PIXI.TextStyle({
         fontFamily: 'Minecraft',
@@ -748,3 +834,54 @@ function setupFontStyle() {
         fill: '#ffffff'
     });
 }
+
+/* SETUP AUDIO ASSETS USED IN GAME */
+function setupAudio() {
+    sound.add('background-music', './assets/audio/Loyalty-Freak-Music-Hyper-Jingle-Bells.mp3');
+    sound.add('beep', './assets/audio/mixkit-retro-game-notification-212.wav');
+    sound.add('game-over', './assets/audio/mixkit-arcade-retro-game-over-213.wav');
+    sound.add('explosion', './assets/audio/mixkit-8-bit-bomb-explosion-2811.wav');
+}
+
+/* SETUP REFERENCE TO LOAD FONTS TO BE USED IN COMPONENTS */
+function createFontReferences() {
+    font = new FontFaceObserver('Minecraft');
+}
+
+/* ADD ALL CONTAINERS USED IN APP TO THE APP STAGE */
+function addContainersToStage() {
+    app.stage.addChild(openingContainer);
+    
+    app.stage.addChild(playSceneContainer);
+    
+    app.stage.addChild(menuContainer);
+    menuContainer.x = MENU_x0;
+
+    app.stage.addChild(playButtonContainer);
+}
+
+/* INITIALIZE GLOBAL PARAMETERS FOR GAME */
+function initializeParameters() {
+    // Game variables
+    level = 1;
+    score = 0;
+    linesLeft = N_LINES;
+    paused = false;
+    gameOver = false;
+    onPlay = false;
+    victory = false;
+
+    // Tile sprite counter
+    counter = 1;       
+    // Sprite pool index                        
+    index = N_LINES*WIDTH - 1;
+
+    // Opening state variables
+    yOpening = STAGE_SIZE_Y - 1; 
+    inOpening = true;
+
+    // Reset timers
+    frameTimer = 0;
+    gravityTimer = 0;
+}
+
